@@ -1,5 +1,12 @@
 import pandas as pd
 import numpy as np
+import re
+import matplotlib.pyplot as plt
+import seaborn as sns
+import requests
+import nltk
+import tensorflow_datasets as tfds
+
 from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.naive_bayes import MultinomialNB
@@ -7,19 +14,15 @@ from sklearn.svm import SVC
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support, confusion_matrix
 from scipy.stats import ttest_rel
-import matplotlib.pyplot as plt
-import seaborn as sns
-import nltk
+from bs4 import BeautifulSoup
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
 from nltk.stem import WordNetLemmatizer
-import requests
-from bs4 import BeautifulSoup
-import re
 
 nltk.download('punkt')
 nltk.download('stopwords')
 nltk.download('wordnet')
+
 
 class ReviewClassifier:
     def __init__(self):
@@ -40,11 +43,6 @@ class ReviewClassifier:
         tokens = [self.lemmatizer.lemmatize(token) for token in tokens if token not in self.stop_words]
         return ' '.join(tokens)
 
-    def load_and_preprocess_data(self, dataset_path):
-        data = pd.read_csv(dataset_path)
-        data['review'] = data['review'].apply(self.preprocess_text)
-        return data
-    
     def load_and_preprocess_amazon_data(self, dataset_url):
         data = pd.read_json(dataset_url, lines=True, compression='gzip')
         data = data.rename(columns={'text': 'review'})
@@ -53,8 +51,26 @@ class ReviewClassifier:
         data['review'] = data['review'].apply(self.preprocess_text)
         return data
 
-    def train_and_evaluate(self, dataset_path, dataset_name):
-        data = self.load_and_preprocess_amazon_data(dataset_path)
+    def load_and_preprocess_imdb_data(self):
+        data_splits = tfds.load('imdb_reviews', split=['train', 'test'], as_supervised=True)
+
+        def to_dataframe(tf_data):
+            texts, labels = [], []
+            for text, label in tfds.as_numpy(tf_data):
+                texts.append(text.decode('utf-8'))
+                labels.append(int(label))
+            return pd.DataFrame({'review': texts, 'label': labels})
+
+        df = pd.concat([to_dataframe(data_splits[0]), to_dataframe(data_splits[1])], ignore_index=True)
+        df['review'] = df['review'].apply(self.preprocess_text)
+        return df
+
+    def train_and_evaluate(self, dataset_path, dataset_name, imdb=False):
+        if imdb:
+            data = self.load_and_preprocess_imdb_data()
+        else:
+            data = self.load_and_preprocess_amazon_data(dataset_path)
+
         X = self.vectorizer.fit_transform(data['review'])
         y = data['label']
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
@@ -109,7 +125,7 @@ class ReviewClassifier:
         reviews = self.scrape_reviews(url, review_selector)
         processed_reviews = [self.preprocess_text(review) for review in reviews]
         X = self.vectorizer.transform(processed_reviews)
-        
+
         predictions = {}
         for model_name, model in self.models.items():
             preds = model.predict(X)
@@ -128,10 +144,9 @@ class ReviewClassifier:
 def main():
     classifier = ReviewClassifier()
 
-    dataset_path = 'dataset.csv'
-    dataset_name = 'sample_dataset'
-    
-    results = classifier.train_and_evaluate(dataset_path, dataset_name)
+    dataset_name = 'imdb_reviews'
+    results = classifier.train_and_evaluate(None, dataset_name, imdb=True)
+
     print(f"Results for {dataset_name}:")
     for model_name, metrics in results.items():
         print(f"\n{model_name}:")
@@ -147,14 +162,15 @@ def main():
 
     classifier.save_results(dataset_name)
 
-    url = 'https://example.com/reviews'
-    review_selector = '.review-text'
-    reviews, predictions = classifier.classify_scraped_reviews(url, review_selector)
-    print("\nScraped Reviews Classification:")
-    for i, review in enumerate(reviews):
-        print(f"\nReview {i+1}: {review[:100]}...")
-        for model_name, preds in predictions.items():
-            print(f"{model_name}: {preds[i]}")
+    # Example scraping usage (optional)
+    # url = 'https://example.com/reviews'
+    # review_selector = '.review-text'
+    # reviews, predictions = classifier.classify_scraped_reviews(url, review_selector)
+    # for i, review in enumerate(reviews):
+    #     print(f"\nReview {i+1}: {review[:100]}...")
+    #     for model_name, preds in predictions.items():
+    #         print(f"{model_name}: {preds[i]}")
+
 
 if __name__ == "__main__":
     main()
