@@ -44,9 +44,17 @@ class ReviewClassifier:
         data = pd.read_csv(dataset_path)
         data['review'] = data['review'].apply(self.preprocess_text)
         return data
+    
+    def load_and_preprocess_amazon_data(self, dataset_url):
+        data = pd.read_json(dataset_url, lines=True, compression='gzip')
+        data = data.rename(columns={'text': 'review'})
+        data['label'] = (data['rating'] >= 4.0).astype(int)
+        data = data[(data['rating'] <= 2.0) | (data['rating'] >= 4.0)]
+        data['review'] = data['review'].apply(self.preprocess_text)
+        return data
 
     def train_and_evaluate(self, dataset_path, dataset_name):
-        data = self.load_and_preprocess_data(dataset_path)
+        data = self.load_and_preprocess_amazon_data(dataset_path)
         X = self.vectorizer.fit_transform(data['review'])
         y = data['label']
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
